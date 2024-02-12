@@ -1,0 +1,252 @@
+---
+title: "RAND / UCLA Method (RAM) Simulations Report"
+author: "Joshua J. Cook, M.S., ACRP-PM, CCRC, Achraf Cohen, Ph.D."
+date: today
+toc: TRUE
+format: docx
+embed-resources: TRUE
+editor: visual
+---
+
+```{r}
+# Setup
+library(tidyverse)
+library(boot)
+library(MASS)
+library(DescTools)
+library(reshape2)
+library(ggridges)
+```
+
+# Sample Size
+
+## n = 9
+
+```{r}
+
+# Simulation parameters
+num_experts <- 9  
+num_questions <- 20  
+
+# Function to simulate expert ratings 1-9
+simulate_ratings <- function(num_experts, num_questions) {
+  matrix(sample(1:9, num_experts * num_questions, replace = TRUE), 
+         nrow = num_experts, ncol = num_questions)
+}
+
+# Simulate Round 1 ratings
+ratings_round1 <- simulate_ratings(num_experts, num_questions)
+
+# Function to adjust ratings after example panel discussion
+adjust_ratings <- function(ratings) {
+  apply(ratings, 2, function(x) {
+    if (runif(1) > 0.5) {  # Random chance to adjust
+      ifelse(seq_along(x) <= ncol(ratings) / 2, pmin(x + 1, 9), pmax(x - 1, 1))
+    } else {
+      x  # No adjustment
+    }
+  })
+}
+
+# Simulate Round 2 ratings after panel meeting adjustments
+ratings_round2 <- adjust_ratings(ratings_round1)
+
+# Function to ensure ratings are within the 1-9 scale
+validate_ratings <- function(ratings) {
+  pmin(pmax(ratings, 1), 9)
+}
+
+# Ensure ratings are within the 1-9 scale after adjustments
+ratings_round2 <- validate_ratings(ratings_round2)
+
+# Function to calculate appropriateness scores with categorization based on RAND/UCLA handbook
+calculate_appropriateness <- function(ratings) {
+  # Convert to matrix if not already
+  if (!is.matrix(ratings)) {
+    ratings <- matrix(ratings, nrow = length(ratings), byrow = TRUE)
+  }
+  
+  # Calculate mean and categorize
+  scores <- rowMeans(ratings, na.rm = TRUE)
+  categories <- ifelse(scores > 6, "Appropriate", ifelse(scores < 4, "Inappropriate", "Uncertain"))
+  
+  return(list(scores = scores, categories = categories))
+}
+
+# Calculate appropriateness scores for both rounds
+results_round1 <- calculate_appropriateness(ratings_round1)
+results_round2 <- calculate_appropriateness(ratings_round2)
+
+# Visualize the distribution of ratings for Round 1
+ggplot(melt(ratings_round1), aes(value)) + 
+  geom_histogram(binwidth = 1, fill = "skyblue", color = "black") + 
+  ggtitle("Distribution of Ratings - Round 1") + 
+  xlab("Ratings") + ylab("Frequency") 
+
+# Visualize the distribution of ratings for Round 2
+ggplot(melt(ratings_round2), aes(value)) + 
+  geom_histogram(binwidth = 1, fill = "darkred", color = "black") + 
+  ggtitle("Distribution of Ratings - Round 2") + 
+  xlab("Ratings") + ylab("Frequency")
+
+# Melt the ratings matrices and label round identifier
+ratings_round1_melted <- melt(ratings_round1)
+ratings_round1_melted$Round <- 'Round 1'
+
+ratings_round2_melted <- melt(ratings_round2)
+ratings_round2_melted$Round <- 'Round 2'
+
+# Combine the melted data frames
+ratings_combined <- rbind(ratings_round1_melted, ratings_round2_melted)
+
+ggplot(ratings_combined, aes(x = value, y = Round, fill = Round)) +
+  geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+  scale_fill_manual(values = c("Round 1" = "skyblue", "Round 2" = "darkred")) +
+  ggtitle("Distribution of Ratings Across Rounds") +
+  xlab("Ratings") +
+  ylab("Round") +
+  theme_ridges()
+
+# Create a vector of scores for Round 1, with NA padding if necessary
+scores_round1 <- results_round1$scores
+
+if(length(scores_round1) < num_questions) {
+  scores_round1 <- c(scores_round1, rep(NA, num_questions - length(scores_round1)))
+}
+
+# Create a vector of scores for Round 2, with NA padding if necessary
+scores_round2 <- results_round2$scores
+
+if(length(scores_round2) < num_questions) {
+  scores_round2 <- c(scores_round2, rep(NA, num_questions - length(scores_round2)))
+}
+
+# Create the data frame for visualization
+df <- data.frame(
+  Round = rep(c("Round 1", "Round 2"), each = num_questions),
+  Score = c(scores_round1, scores_round2)
+)
+
+ggplot(df, aes(x = Round, y = Score, group = Round)) +
+  geom_boxplot(fill = "lightgreen") +
+  ggtitle("Appropriateness Scores Across Rounds") +
+  ylab("Appropriateness Score") + xlab("")
+
+print(results_round1$scores)
+print(results_round2$scores)
+```
+
+## n = 15
+
+```{r}
+
+# Simulation parameters
+num_experts <- 15 # increased from 9 based on handbook
+num_questions <- 20  
+
+# Function to simulate expert ratings
+simulate_ratings <- function(num_experts, num_questions) {
+  matrix(sample(1:9, num_experts * num_questions, replace = TRUE), 
+         nrow = num_experts, ncol = num_questions)
+}
+
+# Simulate Round 1 ratings
+ratings_round1 <- simulate_ratings(num_experts, num_questions)
+
+# Function to adjust ratings based on panel discussion
+adjust_ratings <- function(ratings) {
+  apply(ratings, 2, function(x) {
+    if (runif(1) > 0.5) {  # Random chance to adjust
+      ifelse(seq_along(x) <= ncol(ratings) / 2, pmin(x + 1, 9), pmax(x - 1, 1))
+    } else {
+      x  # No adjustment
+    }
+  })
+}
+
+# Simulate Round 2 ratings after panel meeting adjustments
+ratings_round2 <- adjust_ratings(ratings_round1)
+
+# Function to ensure ratings are within the 1-9 scale
+validate_ratings <- function(ratings) {
+  pmin(pmax(ratings, 1), 9)
+}
+
+# Ensure ratings are within the 1-9 scale after adjustments
+ratings_round2 <- validate_ratings(ratings_round2)
+
+# Function to calculate appropriateness scores with categorization
+calculate_appropriateness <- function(ratings) {
+  # Convert to matrix if not already
+  if (!is.matrix(ratings)) {
+    ratings <- matrix(ratings, nrow = length(ratings), byrow = TRUE)
+  }
+  
+  # Calculate mean and categorize
+  scores <- rowMeans(ratings, na.rm = TRUE)
+  categories <- ifelse(scores > 6, "Appropriate", ifelse(scores < 4, "Inappropriate", "Uncertain"))
+  
+  return(list(scores = scores, categories = categories))
+}
+
+# Calculate appropriateness scores for both rounds
+results_round1 <- calculate_appropriateness(ratings_round1)
+results_round2 <- calculate_appropriateness(ratings_round2)
+
+# Visualize the distribution of ratings for Round 1
+ggplot(melt(ratings_round1), aes(value)) + 
+  geom_histogram(binwidth = 1, fill = "skyblue", color = "black") + 
+  ggtitle("Distribution of Ratings - Round 1") + 
+  xlab("Ratings") + ylab("Frequency")
+
+# Visualize the distribution of ratings for Round 2
+ggplot(melt(ratings_round2), aes(value)) + 
+  geom_histogram(binwidth = 1, fill = "darkred", color = "black") + 
+  ggtitle("Distribution of Ratings - Round 2") + 
+  xlab("Ratings") + ylab("Frequency")
+
+# Melt the ratings matrices and add a round identifier
+ratings_round1_melted <- melt(ratings_round1)
+ratings_round1_melted$Round <- 'Round 1'
+
+ratings_round2_melted <- melt(ratings_round2)
+ratings_round2_melted$Round <- 'Round 2'
+
+# Combine the melted data frames
+ratings_combined <- rbind(ratings_round1_melted, ratings_round2_melted)
+
+ggplot(ratings_combined, aes(x = value, y = Round, fill = Round)) +
+  geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+  scale_fill_manual(values = c("Round 1" = "skyblue", "Round 2" = "darkred")) +
+  ggtitle("Distribution of Ratings Across Rounds") +
+  xlab("Ratings") +
+  ylab("Round") +
+  theme_ridges()
+
+# Create a vector of scores for Round 1, with NA padding if necessary
+scores_round1 <- results_round1$scores
+
+if(length(scores_round1) < num_questions) {
+  scores_round1 <- c(scores_round1, rep(NA, num_questions - length(scores_round1)))
+}
+
+# Create a vector of scores for Round 2, with NA padding if necessary
+scores_round2 <- results_round2$scores
+
+if(length(scores_round2) < num_questions) {
+  scores_round2 <- c(scores_round2, rep(NA, num_questions - length(scores_round2)))
+}
+
+df <- data.frame(
+  Round = rep(c("Round 1", "Round 2"), each = num_questions),
+  Score = c(scores_round1, scores_round2)
+)
+
+ggplot(df, aes(x = Round, y = Score, group = Round)) +
+  geom_boxplot(fill = "lightgreen") +
+  ggtitle("Appropriateness Scores Across Rounds") +
+  ylab("Appropriateness Score") + xlab("")
+
+print(results_round1$scores)
+print(results_round2$scores)
+```
