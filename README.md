@@ -1,5 +1,5 @@
 # ConsensusMethods
-Resources for the study design and statistical analysis of consensus studies. 
+Resources for the study design and statistical analysis of RAND/UCLA Method (RAM) consensus studies.
 
 Poster presented at the 2024 Conference on Statistical Practice (CSP). 
 
