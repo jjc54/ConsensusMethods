@@ -3,7 +3,7 @@ Literature and simulation (using R) resources for the study design and statistic
 
 Awarded "First Place Student Poster" at the 2024 Conference on Statistical Practice (CSP) in New Orleans, Lousiana by the American Statistical Association (ASA). 
 
-A product of the UWF CSDA lab (https://csdalab.github.io/). Special thanks to the University of West Florida (UWF) Graduate School, Kugelman Honors Program, and Hal Marcus College of Science and Engineering for their support. 
+A product of the University of West Florida (UWF) CSDA lab (https://csdalab.github.io/). Special thanks to the UWF Graduate School, Kugelman Honors Program, and Hal Marcus College of Science and Engineering for their support. 
 
 Author Contact:
 
