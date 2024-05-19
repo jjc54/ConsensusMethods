@@ -8,6 +8,5 @@ A product of the University of West Florida (UWF) CSDA lab (https://csdalab.gith
 Author Contact:
 
 Joshua J. Cook, M.S., ACRP-PM, CCRC (University of West Florida): jcook3@uwf.edu  
-Andrew Jimenez, M1, B.S. (Georgetown University): amj156@georgetown.edu  
-Joshua Stillman, B.S. (University of Florida): joshstillman23@gmail.com  
+Andrew Jimenez, M1, B.S. (Georgetown University): amj156@georgetown.edu   
 Achraf Cohen, Ph.D. (University of West Florida): acohen@uwf.edu  
