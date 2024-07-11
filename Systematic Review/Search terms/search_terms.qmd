@@ -1,0 +1,350 @@
+---
+title: "Programmatically identifying search terms for a systematic review"
+subtitle: "A precurser to our RAND/UCLA systematic review"
+author: "Joshua J. Cook, M.S. DS, M.S. CRM., ACRP-PM, CCRC, B.S."
+date: today
+format: html
+embed-resources: true
+editor: visual
+---
+
+## Setup
+
+```{r}
+# Install and load required packages
+library(easyPubMed) # querying PubMed database
+library(tidyverse) # data wrangling
+library(ggraph) # network graphs
+library(litsearchr) # for search term identification
+library(RefManageR) # for reference management
+```
+
+## PubMed Query
+
+### Inclusion / Exclusion Criteria for Naive Query
+
+![](images/clipboard-918733193.png)
+
+```{r}
+#| eval: false
+
+### OLD VERSION - ignore
+
+# Function to fetch articles from PubMed in batches (from previous paper by Cook & Truett)
+fetch_pubmed_articles_batch <- function(query, batch_size = 1000) {
+  # Download PubMed data in batches
+  pubmed_data <- batch_pubmed_download(
+    pubmed_query_string = query, 
+    format = "xml", 
+    batch_size = batch_size,
+    encoding = "UTF8"
+  )
+  
+  # Convert downloaded data to a list of articles
+  articles_list <- articles_to_list(pubmed_data = pubmed_data)
+  
+  # Convert list of articles to a data frame
+  articles_df <- do.call(rbind, lapply(articles_list, article_to_df, autofill = TRUE))
+  
+  return(articles_df)
+}
+
+# Query per inclusion / exclusion criteria
+query <- '"RAND UCLA" AND "English"[Language] AND (("2019/05"[Date - Publication] : "2024/05"[Date - Publication]))'
+
+# Perform the search with batching
+results <- fetch_pubmed_articles_batch(query, batch_size = 1000)
+
+# Get rid of multiple entries due to multiple authors
+
+results_unique <-
+  remove_duplicates(df = results, field = "title", method = "exact")
+```
+
+```{r}
+
+### NEW VERSION - updated code with more data return!
+
+# Query per inclusion / exclusion criteria
+query <- '"RAND UCLA" AND "English"[Language] AND (("2019/05"[Date - Publication] : "2024/05"[Date - Publication]))'
+
+# Submit the query
+epm_query <- epm_query(query)
+
+# Retrieve records
+
+epm_results <- epm_fetch(epm_query, format = 'xml')
+
+# Extract results
+
+results <- epm_parse (epm_results)
+
+results # Metadata now included!
+
+results_raw <- getEPMData(results)
+
+# Get rid of any duplicates
+
+results_unique <-
+  remove_duplicates(df = results_raw, field = "title", method = "exact")
+```
+
+## Keyword extraction
+
+```{r}
+# Extract keywords from the title/abstracts using litsearchr
+# using RAKE algorithm
+# using stop word collection from stopwords package
+
+titles_abstracts <- paste(results_unique$title, results_unique$abstract)
+
+terms_rake <- litsearchr::extract_terms(
+  text = titles_abstracts,
+  method = "fakerake",
+  ngrams = TRUE,
+  min_freq = 3,
+  min_n = 2,
+  language = "English",
+  stopwords = stopwords::data_stopwords_stopwordsiso$en
+)
+
+# Extract keywords from MeSH terms manually assigned
+
+terms_real <- litsearchr::extract_terms(
+  text = results_unique$mesh_terms,
+  method = "fakerake",
+  ngrams = TRUE,
+  min_freq = 3,
+  min_n = 2,
+  language = "English",
+  stopwords = stopwords::data_stopwords_stopwordsiso$en
+)
+
+# Preview 
+
+head(terms_rake)
+head(terms_real)
+
+# Combine all unique terms into one vector
+terms_all <- unique(append(terms_rake, terms_real))
+```
+
+## Co-occurrence Network
+
+```{r}
+# Create co-occurrence network (document-feature matrix)
+# document = articles (title/abstracts), features = search terms
+
+# Create Co-Occurrence Network - a LOT at first
+docs <- paste(results_unique[, "title"], results_unique[, "abstract"]) # we will consider title and abstract of each article to represent the article's "content"
+
+dfm <- litsearchr::create_dfm(
+  elements = docs, 
+  features = terms_all) # document-feature matrix
+
+coocnet <- litsearchr::create_network(
+  dfm, 
+  min_studies = 3)
+
+ggraph(coocnet, layout = "stress") +
+coord_fixed() +
+expand_limits(x = c(-3, 3)) +
+geom_edge_link(aes(alpha = weight)) +
+geom_node_point(shape = "circle filled", fill = "white") +
+geom_node_text(aes(label = name), hjust = "outward", check_overlap = TRUE) +
+guides(edge_alpha = "none") +
+theme_void()
+```
+
+## Network Pruning - Narrowing Our Terms Down
+
+```{r}
+# Prune the complex naive network based on node strength
+
+node_strength <- igraph::strength(coocnet)
+
+node_rankstrength <- data.frame(term = names(node_strength), strength = node_strength, row.names = NULL)
+
+node_rankstrength$rank <- rank(node_rankstrength$strength, ties.method = "min")
+
+node_rankstrength <- node_rankstrength[order(node_rankstrength$rank),]
+
+plot_strength <-
+ggplot(node_rankstrength, aes(x = rank, y = strength, label = term)) +
+geom_line(lwd = 0.8) +
+geom_point() +
+ggrepel::geom_text_repel(size = 3, hjust = "right", nudge_y = 3, max.overlaps = 30) +
+theme_bw()
+
+plot_strength
+
+# Pruning based on chosen criteria
+
+# Cumulatively - retain a certain proportion (e.g. 80%) of the total strength of the network of search terms
+
+cutoff_cum <- litsearchr::find_cutoff(coocnet, method = "cumulative", percent = 0.8)
+
+# Changepoints - certain points along the ranking of terms where the strength of the next strongest term is much greater than that of the previous one
+
+cutoff_change <- litsearchr::find_cutoff(coocnet, method = "changepoint", knot_num = 3)
+
+plot_strength +
+geom_hline(yintercept = cutoff_cum, color = "red", lwd = 0.7, linetype = "longdash", alpha = 0.6) +
+geom_hline(yintercept = cutoff_change, color = "orange", lwd = 0.7, linetype = "dashed", alpha = 0.6)
+
+cutoff_crit <- cutoff_change[which.min(abs(cutoff_change - cutoff_cum))] # e.g. nearest cutpoint to cumulative criterion (cumulative produces one value, changepoints may be many)
+
+maxselected_terms <- litsearchr::get_keywords(litsearchr::reduce_graph(coocnet, cutoff_crit))
+
+maxselected_terms
+```
+
+## String Efficiency and Clustering
+
+```{r}
+# Keeping shortest subset of strings
+
+superstring <- rep(FALSE, length(maxselected_terms))
+
+for(i in seq_len(length(maxselected_terms))) {
+superstring[i] <- any(stringr::str_detect(maxselected_terms[i], maxselected_terms[-which(maxselected_terms == maxselected_terms[i])]))
+}
+
+selected_terms <- maxselected_terms[!superstring]
+
+write.csv(selected_terms, "selected_terms.csv")
+
+# manually group terms in the csv; can manually add terms or remove PRN
+
+grouped_terms <- read.csv("selected_terms_grouped.csv")
+
+# extract the grouped terms from the csv
+
+grouped_terms$group %>%
+  unique()
+
+niche_terms <- grouped_terms$term[grep("niche", grouped_terms$group)]
+
+consensus_terms <- grouped_terms$term[grep("consensus", grouped_terms$group)] # 3 terms added (at bottom)
+
+clinical_terms <- grouped_terms$term[grep("clinical", grouped_terms$group)]
+
+# repeat this for all concept groups
+
+# then merge them into a list, using the code below as an example
+
+selected_terms <- list(niche_terms, consensus_terms, clinical_terms)
+
+names(selected_terms) <-
+  c("niche",
+    "consensus",
+    "clinical")
+
+# Manual removal / addition of terms - none to limit bias
+
+#selected_terms <- selected_terms[-which(selected_terms == c("american college", "imaging modalities", "imaging modality", "imaging plays", "initial imaging", "recommended imaging"))]
+#selected_terms <- c(selected_terms, "psychotherapy", "ptsd")
+
+###
+
+# Manual grouping into clusters - for more rigorous search we will need a combination of OR and AND operators
+
+#design <- selected_terms[c(2, 4, 9, 10)]
+#intervention <- selected_terms[c(1, 3, 5, 6, 7, 8, 13)]
+#disorder <- selected_terms[c(11, 12, 14)]
+
+# all.equal(length(gs_selected_terms),
+# sum(length(design), length(intervention), length(disorder))
+# ) # check that we grouped all terms
+
+#gs_gruped_selected_terms <- list(
+#design = design,
+#intervention = intervention,
+#disorder = disorder
+#)
+
+selected_terms
+```
+
+## Generating the Search String
+
+\
+
+```{r}
+###
+
+# Automatically write the search string while removing redundant terms (ex: terms within a term)
+
+search_string <- litsearchr::write_search(
+selected_terms,
+languages = "English", # per inc/exc; could use Google Translate
+exactphrase = TRUE,
+stemming = FALSE,
+closure = "left",
+writesearch = FALSE
+)
+
+search_string
+
+#write.csv (search_string, "search_string.csv") # For manual searching
+```
+
+## Feeding Back to PubMed
+
+```{r}
+
+# Function to format search terms
+format_search_terms <- function(search_terms, additional_terms = "") {
+  # Remove escape characters
+  formatted_terms <- gsub("\\\\", "", search_terms)
+  
+  # Append additional terms if any
+  if (additional_terms != "") {
+    formatted_terms <- paste(formatted_terms, additional_terms, sep = " AND ")
+  }
+  
+  return(formatted_terms)
+}
+
+# Additional search terms
+additional_search_terms <- '"English"[Language] AND ("2019/05"[Date - Publication] : "2024/05"[Date - Publication])'
+
+# Format the search terms
+formatted_query <- format_search_terms(search_string, additional_search_terms)
+
+formatted_query
+
+# Submit the query
+epm_query <- epm_query(formatted_query)
+
+# Retrieve records
+
+epm_results <- epm_fetch(epm_query, format = 'xml')
+
+# Extract results
+
+results <- epm_parse (epm_results)
+
+results # Metadata now included!
+
+results_raw <- getEPMData(results)
+
+# Get rid of any duplicates
+
+results_unique <-
+  remove_duplicates(df = results_raw, field = "title", method = "exact")
+
+head(results_unique)
+```
+
+## References
+
+[Identifying Search Terms for a Systematic Review: A Demonstration of the litsearchr Package (youtube.com)](https://www.youtube.com/watch?v=Z0GWTzl9OCE)
+
+[Search term selection with litsearchr v1.0.0 for an example systematic review of the effects of fire on black-backed woodpeckers (elizagrames.github.io)](https://elizagrames.github.io/litsearchr/litsearchr_vignette.html)
+
+[An automated approach to identifying search terms for systematic reviews using keyword co‐occurrence networks - Grames - 2019 - Methods in Ecology and Evolution - Wiley Online Library](https://besjournals.onlinelibrary.wiley.com/doi/10.1111/2041-210X.13268)
+
+[Automated systematic literature search using R, litsearchr, and Google Scholar web scraping \| R-bloggers](https://www.r-bloggers.com/2023/03/automated-systematic-literature-search-using-r-litsearchr-and-google-scholar-web-scraping/#google_vignette)
+
+[Retrieving and Processing PubMed Records using easyPubMed (data-pulse.com)](https://www.data-pulse.com/projects/Rlibs/vignettes/easyPubMed_demo.html)
